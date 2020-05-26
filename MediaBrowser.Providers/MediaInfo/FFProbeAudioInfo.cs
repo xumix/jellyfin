@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.IO.Enumeration;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
@@ -26,11 +29,18 @@ namespace MediaBrowser.Providers.MediaInfo
         private readonly IApplicationPaths _appPaths;
         private readonly IJsonSerializer _json;
         private readonly ILibraryManager _libraryManager;
+        private readonly IServerConfigurationManager _serverConfig;
         private readonly IMediaSourceManager _mediaSourceManager;
 
         private readonly CultureInfo _usCulture = new CultureInfo("en-US");
 
-        public FFProbeAudioInfo(IMediaSourceManager mediaSourceManager, IMediaEncoder mediaEncoder, IItemRepository itemRepo, IApplicationPaths appPaths, IJsonSerializer json, ILibraryManager libraryManager)
+        public FFProbeAudioInfo(IMediaSourceManager mediaSourceManager,
+            IMediaEncoder mediaEncoder,
+            IItemRepository itemRepo,
+            IApplicationPaths appPaths,
+            IJsonSerializer json,
+            ILibraryManager libraryManager,
+            IServerConfigurationManager serverConfig)
         {
             _mediaEncoder = mediaEncoder;
             _itemRepo = itemRepo;
@@ -38,6 +48,7 @@ namespace MediaBrowser.Providers.MediaInfo
             _json = json;
             _libraryManager = libraryManager;
             _mediaSourceManager = mediaSourceManager;
+            _serverConfig = serverConfig;
         }
 
         public async Task<ItemUpdateType> Probe<T>(T item, MetadataRefreshOptions options,
@@ -55,7 +66,7 @@ namespace MediaBrowser.Providers.MediaInfo
                     protocol = _mediaSourceManager.GetPathProtocol(path);
                 }
 
-                var result = await _mediaEncoder.GetMediaInfo(new MediaInfoRequest
+                var mediaInfoRequest = new MediaInfoRequest
                 {
                     MediaType = DlnaProfileType.Audio,
                     MediaSource = new MediaSourceInfo
@@ -63,8 +74,15 @@ namespace MediaBrowser.Providers.MediaInfo
                         Path = path,
                         Protocol = protocol
                     }
+                };
 
-                }, cancellationToken).ConfigureAwait(false);
+                if (!item.IsShortcut || options.EnableRemoteContentProbe)
+                {
+                    var extermalAudioFiles = GetExternalAudioFiles(item);
+                    mediaInfoRequest.PlayableStreamFileNames = extermalAudioFiles;
+                }
+
+                var result = await _mediaEncoder.GetMediaInfo(mediaInfoRequest, cancellationToken).ConfigureAwait(false);
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -163,6 +181,43 @@ namespace MediaBrowser.Providers.MediaInfo
             audio.SetProviderId(MetadataProviders.MusicBrainzAlbum, data.GetProviderId(MetadataProviders.MusicBrainzAlbum));
             audio.SetProviderId(MetadataProviders.MusicBrainzReleaseGroup, data.GetProviderId(MetadataProviders.MusicBrainzReleaseGroup));
             audio.SetProviderId(MetadataProviders.MusicBrainzTrack, data.GetProviderId(MetadataProviders.MusicBrainzTrack));
+        }
+
+        private string[] GetExternalAudioFiles<T>(T item) where T : Audio
+        {
+            var encodingOptions = _serverConfig.GetEncodingOptions();
+
+            if (string.IsNullOrWhiteSpace(encodingOptions.ExternalAudioPathMasks))
+            {
+                return Array.Empty<string>();
+            }
+
+            var extraFiles = new List<string>();
+
+            var subDirMasks = encodingOptions.ExternalAudioPathMasks?.Split(",", StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+
+            var itemDir = item.ContainingFolderPath;
+            var subDirs = Directory.GetDirectories(itemDir).ToList();
+            var itemName = Path.GetFileNameWithoutExtension(item.Path);
+            var searchPattern = itemName + ".*";
+
+            // First, look into the same dir
+            var sameDirFiles = Directory.GetFiles(itemDir, searchPattern, SearchOption.TopDirectoryOnly);
+            extraFiles.AddRange(sameDirFiles.Where(f => f != item.Path));
+
+            foreach (var mask in subDirMasks)
+            {
+                foreach (var dir in subDirs)
+                {
+                    if (FileSystemName.MatchesSimpleExpression(mask.Trim(), dir, true))
+                    {
+                        var files = Directory.GetFiles(Path.Combine(itemDir, dir), searchPattern, SearchOption.AllDirectories);
+                        extraFiles.AddRange(files);
+                    }
+                }
+            }
+
+            return extraFiles.ToArray();
         }
     }
 }

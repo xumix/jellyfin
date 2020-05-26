@@ -42,6 +42,8 @@ namespace MediaBrowser.Model.Configuration
 
         public string[] HardwareDecodingCodecs { get; set; }
 
+        public string ExternalAudioPathMasks { get; set; } = "sound";
+
         public EncodingOptions()
         {
             DownMixAudioBoost = 2;

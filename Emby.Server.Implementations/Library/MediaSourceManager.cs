@@ -99,12 +99,7 @@ namespace Emby.Server.Implementations.Library
 
         public List<MediaStream> GetMediaStreams(string mediaSourceId)
         {
-            var list = GetMediaStreams(new MediaStreamQuery
-            {
-                ItemId = new Guid(mediaSourceId)
-            });
-
-            return GetMediaStreamsForItem(list);
+            return GetMediaStreams(new Guid(mediaSourceId));
         }
 
         public List<MediaStream> GetMediaStreams(Guid itemId)
@@ -114,20 +109,7 @@ namespace Emby.Server.Implementations.Library
                 ItemId = itemId
             });
 
-            return GetMediaStreamsForItem(list);
-        }
-
-        private List<MediaStream> GetMediaStreamsForItem(List<MediaStream> streams)
-        {
-            foreach (var stream in streams)
-            {
-                if (stream.Type == MediaStreamType.Subtitle)
-                {
-                    stream.SupportsExternalStream = StreamSupportsExternalStream(stream);
-                }
-            }
-
-            return streams;
+            return list;
         }
 
         /// <inheritdoc />

@@ -240,10 +240,11 @@ namespace MediaBrowser.Providers.MediaInfo
                 FetchShortcutInfo(item);
             }
 
-            var prober = new FFProbeAudioInfo(_mediaSourceManager, _mediaEncoder, _itemRepo, _appPaths, _json, _libraryManager);
+            var prober = new FFProbeAudioInfo(_mediaSourceManager, _mediaEncoder, _itemRepo, _appPaths, _json, _libraryManager, _config);
 
             return prober.Probe(item, options, cancellationToken);
         }
+
         // Run last
         public int Order => 100;
     }
